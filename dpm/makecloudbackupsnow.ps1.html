@@ -1,0 +1,2 @@
+﻿$protecteddatasources = Get-DPMProtectionGroup | Get-DPMDatasource 
+foreach ($protecteddatasource in $protecteddatasources) {New-DPMRecoveryPoint -Online -datasource $protecteddatasource}

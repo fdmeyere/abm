@@ -1,0 +1,34 @@
+function do_backup()
+{
+pbuname=$1
+ls $pbuname
+mount=$( mount | grep /mnt/backup)
+$DLC/bin/probkup online $2 $pbuname  -com >>/tmp/tar.cop
+echo verifying ...
+echo quit | $DLC/bin/prorest VERIFY $pbuname -vp  | grep -q '6758' && vpstatus=1
+aienabled=1
+$DLC/bin/rfutil $2 -C aimage list | grep '3803' && aienabled=0
+echo backup $pbuname complete
+
+hostnaam=$(cat /proc/sys/kernel/hostname)
+kernel=$(uname -r)
+uptime=$(awk '{print int($1/3600)}' /proc/uptime)
+freeroot=$(printf '%s' $(($(stat -f --format='%f*%S' /))))
+freedata=$(printf '%s' $(($(stat -f --format='%f*%S' /data))))
+freeusr2=$(printf '%s' $(($(stat -f --format='%f*%S' /usr2))))
+freetmp=$(printf '%s' $(($(stat -f --format='%f*%S' /tmp))))
+ipaddr=$(hostname -i)
+smbversion=$(/usr/sbin/smbd -V | cut -d ' ' -f 2)
+swapusage=$(free | awk '/Swap/ { print $3/$2*100 }')
+memusage=$(free | awk '/Mem/ { print $3/$2*100 }')
+cpumodel=$(cat /proc/cpuinfo | grep model | grep name | tail -1 | cut -d ':' -f 2)
+cpucores=$(getconf _NPROCESSORS_ONLN)
+credat=$(date +"%Y-%m-%d %T")
+pbudate=$(date -r "$pbuname" +"%s")
+pbusize=$(wc -c "$pbuname" | awk '{print $1}')
+elversion=$(cat /etc/redhat-release)
+ipaddress="$(curl ifconfig.me)"
+# | grep -o '[0-9]\.[0-9]\.[0-9][0-9][0-9][0-9]')
+wget --no-check-certificate -q "http://azurebackupmonitor.azurewebsites.net/pbu/index.php?credat=$credat&pbuname=$pbuname&pbusize=$pbusize&pbudate=$pbudate&sitenr=$SITENR&vpstatus=$vpstatus&mount=$mount&aienabled=$aienabled&ipaddress=$ipaddress"
+wget --no-check-certificate -q "http://azurebackupmonitor.azurewebsites.net/system/fill.php?hostname=$hostnaam&uptime=$uptime&freeusr2=$freeusr2&freetmp=$freetmp&freedata=$freedata&freeroot=$freeroot&swapu=$swapusage&memu=$memusage&cpucores=$cpucores&kernel=$kernel&ipaddr=$ipaddr&smbversion=$smbversion&credat=$credat&cpumodel=$cpumodel&elversion=$elversion"
+}

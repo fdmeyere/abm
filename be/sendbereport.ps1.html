@@ -1,0 +1,118 @@
+﻿<#
+
+.SYNOPSIS
+
+Stuurt Veritas Backup server data naar een MySQL database
+
+.DESCRIPTION
+
+Stuurt Veritas Backup server data naar een MySQL database
+
+.PARAMETER <Parameter_Name>
+
+    geen parameters
+
+.INPUTS
+
+  geen inputs
+
+.OUTPUTS
+
+  None
+
+.NOTES
+
+  Version:        0.99
+
+  Author:         Filip De Meyere
+
+  Creation Date:  juli 2021
+
+  Purpose/Change: Initial script development
+
+.EXAMPLE
+
+  <Example goes here. Repeat this attribute for more than one example>
+
+#>
+
+#---------------------------------------------------------[Initialisatie]--------------------------------------------------------
+import-module "C:\Program Files\Veritas\Backup Exec\Modules\PowerShell3\BEMCLI\BEMCLI.psd1"
+import-module "C:\Program Files\Symantec\Backup Exec\Modules\BEMCLI\BEMCLI.psd1"
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+#---------------------------------------------------------[Functies]--------------------------------------------------------
+
+#---------------------------------------------------------[Hoofdprogramma]--------------------------------------------------
+
+#---------------------------------------------------------[Deel 1, Arcus service installatie/controle]----------------------
+$serviceName = 'ArcusService'
+
+If (Get-Service $serviceName -ErrorAction SilentlyContinue) {
+
+    If ((Get-Service $serviceName).Status -eq 'Running') {
+        stop-service $serviceName
+        Write-Host "$serviceName was stopped."
+        set-service $serviceName -startuptype disabled
+        Write-Host "$serviceName was disabled."
+
+
+    } Else {
+
+        Write-Host "$serviceName found, but it is not running."
+        #Start-Service $serviceName
+        #Write-Host "Starting $serviceName"
+
+
+    }
+
+} Else {
+
+#Write-Host "$serviceName not found, installing now"
+#Invoke-WebRequest -Uri https://azurebackupmonitor.azurewebsites.net/be/Agent.zip -OutFile c:\cce\scripts\Agent.zip
+#$BackUpPath = "C:\cce\scripts\Agent.zip"
+#$Destination = “c:\cce\scripts\agent”
+#Add-Type -assembly “system.io.compression.filesystem”
+#[io.compression.zipfile]::ExtractToDirectory($BackUpPath, $destination)
+#C:\Windows\Microsoft.NET\Framework\v4.0.30319\installutil.exe C:\cce\scripts\agent\ArcusWindowsService.exe
+
+}
+
+#---------------------------------------------------------[Deel 2, Backup Exec job historiek opvragen en wegschrijven]---------
+
+$results=Get-BEJobHistory | Sort StartTime | Where-Object { $_.startTime -gt (Get-Date).AddDays(-1) } 
+
+foreach ($result in $results) {
+
+$a0 = $($result).jobname
+$a0 = $a0.replace("'",'')
+
+$a1 = $($result).jobstatus
+
+$a3 = $($result).agentserver
+$a4 = $($result).totaldatasizebytes
+$a5 = ($($result).starttime).ToString("yyyy-MM-dd HH:mm:ss")
+$a6 = ($($result).endtime).ToString("yyyy-MM-dd HH:mm:ss")
+
+$a6 = (New-TimeSpan -Start $a5 -End $a6).TotalSeconds
+
+$a7 = $($result).storagename
+$a8 = $($result).jobtype
+
+$url="https://azurebackupmonitor.azurewebsites.net/be/fill.php?jobname=" + $a0 + "&" + "jobstatus=" + $a1 + "&" + "agentserver=" + $a3 + "&" + "totaldatasizebytes=" + $a4 + "&" + "starttime=" + $a5+ "&" + "elapsedtime=" + $a6 + "&" + "storage=" + $a7 + "&" + "jobtype=" + $a8
+#write-host $url
+invoke-webrequest $url
+
+}
+
+#---------------------------------------------------------[Deel 3, Backup Exec server installatie gegevens opvragen en wegschrijven]----
+
+$a0=$env:COMPUTERNAME
+$CurrentBuild = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name CurrentBuild).CurrentBuild
+$UBR = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name UBR).UBR
+$OSVersion = $CurrentBuild + "." + $UBR
+$a1 = $(Get-BEBackupExecServer).version
+$url="https://azurebackupmonitor.azurewebsites.net/be/fillsrv.php?servername=" + $a0 + "&" + "version=" + $a1 + "&" + "osversion=" + $osversion
+#write-host $url
+invoke-webrequest $url
+
+#---------------------------------------------------------[Einde hoofdprogramma]--------------------------------------------------------

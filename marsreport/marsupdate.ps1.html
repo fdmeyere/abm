@@ -1,0 +1,3 @@
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls12
+invoke-webrequest -uri https://aka.ms/azurebackup_agent -OutFile c:\cce\scripts\marsupdater.exe
+Start-Process -Wait -FilePath c:\cce\scripts\marsupdater.exe -ArgumentList "/q"

@@ -1,0 +1,149 @@
+﻿<#
+
+.SYNOPSIS
+
+Stuurt Microsoft Azure Backup server data naar een MySQL database
+
+.DESCRIPTION
+
+Stuurt Microsoft Azure Backup server data naar een MySQL database
+
+.PARAMETER <Parameter_Name>
+
+    geen parameters
+
+.INPUTS
+
+  geen inputs
+
+.OUTPUTS
+
+  None
+
+.NOTES
+
+  Version:        0.99
+
+  Author:         Filip De Meyere
+
+  Creation Date:  oktober 2019
+
+  Purpose/Change: Initial script development
+
+.EXAMPLE
+
+  <Example goes here. Repeat this attribute for more than one example>
+
+#>
+
+
+
+#---------------------------------------------------------[Initialisatie]--------------------------------------------------------
+
+$installPath = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Microsoft Data Protection Manager\Setup" "UIInstallPath").UIInstallPath
+$dpmModuleFullPath = $installPath + "Modules\DataProtectionManager\DataProtectionManager.psd1"
+Import-Module $dpmModuleFullPath
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls12
+
+#---------------------------------------------------------[Functies]--------------------------------------------------------
+
+#---------------------------------------------------------[Hoofdprogramma]--------------------------------------------------------
+
+Invoke-WebRequest -Uri https://azurebackupmonitor.azurewebsites.net/dpm/makecloudbackupsnow.ps1.html -OutFile c:\cce\scripts\makecloudbackupsnow.ps1
+Invoke-WebRequest -Uri https://azurebackupmonitor.azurewebsites.net/dpm/makereplicasconsistent.ps1.html -OutFile c:\cce\scripts\makereplicasconsistent.ps1
+Invoke-WebRequest -Uri https://azurebackupmonitor.azurewebsites.net/dpm/senddpmreportmail.ps1.html -OutFile c:\cce\senddpmreportmail.ps1
+#opvragen versienummers
+
+$loc=Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows Azure Backup\Setup\" -Name "InstallPath"
+$loc=$loc.InstallPath + "bin\cbengine.exe"
+$marsversion=[System.Diagnostics.FileVersionInfo]::GetVersionInfo($loc).FileVersion
+
+$loc=Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Microsoft Data Protection Manager\Setup\" -Name "InstallPath"
+$loc=$loc.InstallPath + "bin\msdpm.exe"
+$mabsversion=[System.Diagnostics.FileVersionInfo]::GetVersionInfo($loc).FileVersion
+
+# opvragen DPM data laatste online recovery points
+
+#do {
+  $results=Get-DPMProtectionGroup | Get-DPMDatasource  | Get-RecoveryPoint  | Where-Object { $_.backuptime -gt (Get-Date).AddDays(-1) } | sort-object BackupTime -descending
+#  } while ($results -eq $null) 
+  
+# nu parsen we de recovery points, dan een beetje de namen opkuisen, en dan met de mysql functie alles in de database steken
+
+foreach ($result in $results) {
+
+$credat=get-date -Format "yyyy-MM-dd HH:mm:ss"
+$a1 = ($($result).backuptime).ToString("yyyy-MM-dd HH:mm:ss")
+$a2 = $($result).name.Replace('RCT\','')
+$a2 = $a2.replace('C:\','C:/ ('+$derdencode+')')
+$a2 = $a2.replace('D:\','D:/ ('+$derdencode+')')
+$a3 = $($result).datasource
+
+$url="https://azurebackupmonitor.azurewebsites.net/dpm/index.php?credat=" + $credat + "&" + "dat=" + $a1 + "&" + "protecteditem=" + $a2 + "&" + "datasource=" + $a3
+Invoke-WebRequest -uri $url
+
+}
+
+# hier maken we de tabel dpmitems leeg om daarna een nieuwe lijst op te vullen, dit vangt het toevoegen van iets aan DPM op
+
+$url="https://azurebackupmonitor.azurewebsites.net/dpm/delete.php?derdencode=" + $derdencode
+Invoke-WebRequest -uri $url
+
+# hier halen we terug alle backup items op, onafhankelijk of de backup nu gelukt is of niet.
+
+$backupitems=Get-DPMProtectionGroup | Get-DPMDatasource
+
+foreach ($backupitem in $backupitems) {
+
+$credat=get-date -Format "yyyy-MM-dd HH:mm:ss"
+$a1 = $($backupitem).name.Replace('RCT\','')
+$a1=$a1.replace('C:\','C:/ ('+$derdencode+')')
+$a1=$a1.replace('D:\','D:/ ('+$derdencode+')')
+
+$url="https://azurebackupmonitor.azurewebsites.net/dpm/fill.php?credat=" + $credat + "&" +  "protecteditem=" + $a1 + "&" + "derdencode="+$derdencode 
+Invoke-WebRequest -uri $url
+}
+
+invoke-expression c:\cce\senddpmreportmail.ps1
+
+$env:COMPUTERNAME
+$bootuptime = (Get-CimInstance -ClassName Win32_OperatingSystem).LastBootUpTime
+$CurrentDate = Get-Date
+$uptime = $CurrentDate - $bootuptime
+$disk = Get-WmiObject Win32_LogicalDisk -Filter "DeviceID='C:'" | Select-Object Size,FreeSpace
+
+$CurrentBuild = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name CurrentBuild).CurrentBuild
+$UBR = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name UBR).UBR
+$OSVersion = $CurrentBuild + "." + $UBR
+
+$tmemory = (Get-CimInstance Win32_PhysicalMemory | Measure-Object -Property capacity -Sum).sum /1gb
+
+$fmemory = Get-WmiObject -Class Win32_OperatingSystem
+$fmemory=([math]::round(($fmemory.FreePhysicalMemory / 1024 / 1024), 0))
+write-host $fmemory
+
+$url="https://azurebackupmonitor.azurewebsites.net/dpm/dpmserverstatsfill.php?credat=" + $credat + "&" +  "dpmservername=" + $env:COMPUTERNAME + "&" + "uptime="+$uptime.TotalHours + "&" + "freespacecdrive=" + ([math]::Round($disk.FreeSpace / 1024 /1024 /1024)) + "&" + "marsversion=" + $marsversion + "&" + "mabsversion=" + $mabsversion + "&" + "osversion=" + $osversion + "&" + "tmemory=" + $tmemory + "&" + "fmemory=" + $fmemory 
+Invoke-WebRequest -uri $url
+
+#---------------------------------------------------------[Start Update MARS Agent]--------------------------------------------------------
+invoke-WebRequest -uri https://azurebackupmonitor.azurewebsites.net/marsreport/marsupdate.ps1.html -outfile c:\cce\scripts\marsupdate.ps1
+$taskname = "MARS Agent Update"
+$taskdescription = "MARS Agent Update"
+Unregister-ScheduledTask -TaskName $taskdescription -Confirm:$false
+$action = New-ScheduledTaskAction -Execute 'Powershell.exe' -Argument '-NoProfile -WindowStyle Hidden -command "c:\cce\scripts\marsupdate.ps1'
+$trigger =  New-ScheduledTaskTrigger -Once -At ([DateTime]::Now.AddMinutes(60))
+Register-ScheduledTask -Action $action -Trigger $trigger -TaskName $taskname -Description $taskdescription  -User "System" -RunLevel Highest
+#---------------------------------------------------------[End Update MARS Agent]--------------------------------------------------------
+
+$osversie=(Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion" -Name ReleaseId).ReleaseId
+Remove-Item "C:\Program Files\Microsoft Azure Backup Server\DPM\DPM\Temp\*" -Force -erroraction silentlycontinue
+Remove-Item "C:\Program Files\Microsoft Azure Backup Server v4\DPM\DPM\Temp\*" -Force -erroraction silentlycontinue
+New-Item -Path "c:\cce" -Name "setup" -ItemType "directory"
+
+if ($env:COMPUTERNAME -ne "lietaer-dpm" ) 
+{
+start-sleep -seconds 14400
+restart-computer -Force
+}
+
+#---------------------------------------------------------[Einde hoofdprogramma]--------------------------------------------------------

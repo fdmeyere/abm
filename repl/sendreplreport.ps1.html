@@ -1,0 +1,27 @@
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+$results=Measure-VMReplication 
+
+$CurrentBuild = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name CurrentBuild).CurrentBuild
+$UBR = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name UBR).UBR
+$OSVersion = $CurrentBuild + "." + $UBR
+
+
+foreach ($result in $results) {
+
+$naam=$result.VMName
+$health=$result.health
+$avgreplsize=$result.avgreplsize
+$succreplcount=$result.succreplcount
+$ReplicationErrors=$result.replicatinerrors
+$PrimaryServerName=$result.primaryservername
+$LastReplicationTime=$result.lastreplicationtime  
+$lastreplicationtime = $lastreplicationtime.ToString("yyyy:MM:dd HH:mm")
+
+
+$url="https://azurebackupmonitor.azurewebsites.net/repl/fill.php?naam=" + $naam + "&" + "health=" + $health + "&" + "avgreplsize=" + $avgreplsize + "&" + "succreplcount=" + $succreplcount + "&" + "ReplicationErrors=" + $ReplicationErrors + "&" + "PrimaryServerName=" + $PrimaryServerName + "&" + "LastReplicationTime=" + $LastReplicationTime + "&" + "osversion=" + $OSVersion
+Invoke-WebRequest -uri $url
+
+
+
+}

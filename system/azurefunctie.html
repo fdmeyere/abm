@@ -1,0 +1,79 @@
+#!/bin/bash -l
+# Remark : the -l option is required to load all environment variables from
+#          /etc/profile and /etc/profile.d/*
+#
+# Azure AI sync script
+#
+#################
+# CONFIGURATION #
+#################
+set -u
+SCRIPT_NAME=$0
+SCRIPT_DIR=${SCRIPT_NAME%/*}
+SCRIPT_NAME=${SCRIPT_NAME##*/}
+SCRIPT_NAME_WO_EXT=$(basename -s ".sh" "${SCRIPT_NAME}")
+MY_HOSTNAME=${HOSTNAME/.*/} # Remove the domain part
+TIMESTAMP=$(date +'%Y%m%d%H%M%S')
+LOG_DIR="/tmp"
+LOG_TO_STD_STREAMS=1
+LOG_TO_FILE=1
+LOG_FILE="${LOG_DIR}/$(date +'%Y%m%d')_${SCRIPT_NAME_WO_EXT}.log"
+LOG_TO_SYSLOG=1
+LOG_SYSLOG_FACILITY="daemon"
+TERM=xterm
+export TERM
+KEY=$(wget -O - https://azurebackupmonitor.azurewebsites.net/system/storagekey.txt)
+URI=https://ccestor03.blob.core.windows.net/ccetest/$CUSTOMER_CODE-$APPL_SRC_NAME?$KEY
+
+####################
+# HELPER FUNCTIONS #
+####################
+
+# Include log functions
+#iLOG_FUNCTIONS="${SCRIPT_DIR}/includes/logger.sh"
+#if [ ! -f "${LOG_FUNCTIONS}" ]; then
+#    echo "Could not find ${LOG_FUNCTIONS}! Please check!!!"
+#    exit 1
+#fi
+#. "${LOG_FUNCTIONS}"
+
+CreatePIDFile()
+{
+    PID_FILE="/var/run/${SCRIPT_NAME}.pid"
+    if [[ -e "${PID_FILE}" ]]; then
+        PID=$(cat ${PID_FILE})
+        if [[ -e /proc/${PID} ]]; then
+            echo "An instance of this script (${SCRIPT_NAME}) with PID ${PID} is still running, exiting here ..."
+            exit 1
+        else
+        # Clean up previous PID file
+            rm -f ${PID_FILE}
+        fi
+    fi
+    # Write current PID fo this instance to the PID file
+    echo "$$" > ${PID_FILE}
+    # Set signal trap to remove the PID file upon receiving SIGHUP, SIGTERM, SIGEXIT
+    trap "rm -f ${PID_FILE}; exit $?" INT TERM EXIT
+}
+
+################
+# MAIN PROGRAM #
+################
+
+#Download latest version azcopy
+/bin/rm -r ./azcopy_linux_amd64_*
+wget https://aka.ms/downloadazcopy-v10-linux -O downloadazcopy-v10-linux --no-check-certificate
+tar -xvf downloadazcopy-v10-linux
+/bin/rm /usr/bin/azcopy
+cp  ./azcopy_linux_amd64_*/azcopy /usr/bin/
+
+# Indicate that we are running
+CreatePIDFile
+
+# Which URI are we using?
+echo $URI
+
+# do the AI sync and cleanup
+/usr/bin/azcopy sync $AI_BACKUP_DIR $URI --delete-destination true
+/usr/sbin/tmpwatch -m 8d  $AI_BACKUP_DIR
+/usr/sbin/tmpwatch -m 8d  /root/.azcopy

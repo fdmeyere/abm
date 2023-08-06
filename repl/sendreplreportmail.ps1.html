@@ -1,0 +1,96 @@
+#Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force
+#install-module pswritehtml -allowclobber -force
+#Install-Module msal.ps -allowclobber -force
+#Import-Module PSWriteHTML
+#Import-Module MSAL.PS
+
+#Vraag afzender en bestemmeling op aan de webserivce, op basis van de derdencode
+$obj=invoke-webrequest -uri https://azurebackupmonitor.azurewebsites.net/dpm/getinfo.php?derdencode=$derdencode -UseBasicParsing | ConvertFrom-Json 
+$emailto1=$obj.emailto1
+$emailto2=$obj.emailto2
+
+#default adressen zetten wanneer de webservice geen adressen kan geven
+if ($emailto1.length -lt 5) { $emailto1 = "fdm@cce.be"} 
+if ($emailto2.length -lt 5) { $emailto2 = "no-reply@cce.be"} 
+
+$results=Measure-VMReplication
+$resultx = foreach ($result in $results) {
+
+$naam=$resultx.VMName
+$health=$resultx.health
+$avgreplsize=$resultx.avgreplsize
+$succreplcount=$resultx.succreplcount
+$ReplicationErrors=$resultx.replicatinerrors
+$PrimaryServerName=$resultx.primaryservername
+$LastReplicationTime=$resultx.lastreplicationtime  
+
+  
+  [PSCustomObject] @{
+        
+'Health' = $result.health
+'VM naam'=$result.VMName
+'Average Repl Size (MB)'=[math]::round($result.avgreplsize/1024/1024)
+'Succesful Repl Cycles'=$result.succreplcount
+'Replication Errors'=$result.replicatinerrors
+'Primary Server Name'=$result.primaryservername
+'Last Replication Time'=$result.lastreplicationtime  
+
+        
+        
+    }
+}
+
+    $emailbody = EmailBody -FontFamily 'Calibri' -Size 15 {
+        EmailTable -DataTable $resultx {
+        New-TableCondition -Name 'Health' -Operator eq -Value "Normal" -BackgroundColor Green -Color White -Inline -ComparisonType String
+        New-TableCondition -Name 'Health' -Operator ne -Value "Normal" -BackgroundColor Yellow -Color Black -Inline -ComparisonType String
+        
+        New-TableHeader -Title "Replication Report ($(Get-Date))" -Alignment center -BackGroundColor BuddhaGold -Color White -FontWeight bold
+        } -HideFooter
+    }
+    write-host $emailbody
+    $emailbody=$emailbody.replace("<","`n<")
+    $emailbody=$emailbody.Replace('"','\"')
+    $emailbody=$emailbody.Replace('/','\/')
+    #$emailbody=$emailbody.Replace("RCT\","RCT ")
+    #$emailbody=$emailbody.Replace("C:\","C: ")
+    #$emailbody=$emailbody.Replace("D:\","D: ")
+
+
+$connectiondetails = import-clixml -path c:\cce\scripts\MyCredential.xml
+
+    $token = Get-MsalToken @connectiondetails
+    $accessToken = $token.AccessToken
+    $mailuser="tech.support@cce.be"
+    
+    $URLsend = "https://graph.microsoft.com/v1.0/users/$mailuser/sendMail"
+    $BodyJsonsend = @"
+                        {
+                            "message": {
+                              "subject": "$derdencode replica report",
+                              "body": {
+                                "contentType": "HTML",
+                                "content": "
+    
+$emailbody    
+    
+    
+                                "
+                              },
+                              "toRecipients": [
+                                {
+                                  "emailAddress": {
+                                    "address": "$emailto1"
+                                  }
+                                },
+                                                                {
+                                  "emailAddress": {
+                                    "address": "$emailto2"
+                                  }
+                                }
+                              ]
+                            },
+                            "saveToSentItems": "true"
+                          }
+"@
+Invoke-RestMethod -Method POST -Uri $URLsend -Body $BodyJsonsend -ContentType "application/json" -Headers @{Authorization=("bearer {0}" -f $accessToken)}

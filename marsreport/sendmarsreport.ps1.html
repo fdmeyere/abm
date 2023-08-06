@@ -1,0 +1,118 @@
+Function Get-MachineType
+{
+    [CmdletBinding()]
+    [OutputType([PSCustomObject])]
+    Param
+    (
+        # ComputerName
+        [Parameter(Mandatory=$false,
+                   ValueFromPipeline=$true,
+                   ValueFromPipelineByPropertyName=$true,
+                   Position=0)]
+        [string[]]$ComputerName=$env:COMPUTERNAME,
+        $Credential = [System.Management.Automation.PSCredential]::Empty
+    )
+
+    Begin
+    {
+    }
+    Process
+    {
+        foreach ($Computer in $ComputerName) {
+            Write-Verbose "Checking $Computer"
+            try {
+                # Check to see if $Computer resolves DNS lookup successfuly.
+                $null = [System.Net.DNS]::GetHostEntry($Computer)
+                
+                $ComputerSystemInfo = Get-WmiObject -Class Win32_ComputerSystem -ComputerName $Computer -ErrorAction Stop -Credential $Credential
+                
+                switch ($ComputerSystemInfo.Model) {
+                    
+                    # Check for Hyper-V Machine Type
+                    "Virtual Machine" {
+                        $MachineType="VM"
+                        }
+
+                    # Check for VMware Machine Type
+                    "VMware Virtual Platform" {
+                        $MachineType="VM"
+                        }
+
+                    # Check for Oracle VM Machine Type
+                    "VirtualBox" {
+                        $MachineType="VM"
+                        }
+
+                    # Check for Xen
+                    "HVM domU" {
+                        $MachineType="VM"
+                        }
+
+                    # Check for KVM
+                    # I need the values for the Model for which to check.
+
+                    # Otherwise it is a physical Box
+                    default {
+                        $MachineType="Physical"
+                        }
+                    }
+                
+                # Building MachineTypeInfo Object
+                $MachineTypeInfo = New-Object -TypeName PSObject -Property ([ordered]@{
+                    ComputerName=$ComputerSystemInfo.PSComputername
+                    Type=$MachineType
+                    Manufacturer=$ComputerSystemInfo.Manufacturer
+                    Model=$ComputerSystemInfo.Model
+                    })
+                $MachineTypeInfo
+                }
+            catch [Exception] {
+                Write-Output "$Computer`: $($_.Exception.Message)"
+                }
+            }
+    }
+    End
+    {
+
+    }
+}
+
+
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls12
+$machinetype=Get-MachineType
+$machine= $machinetype.model
+
+
+try { 
+    (get-item "HKLM:\SOFTWARE\Microsoft\Virtual Machine\Guest\Parameters").GetValue("HostName")  | out-null
+    $name=Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Virtual Machine\Guest\Parameters" -Name HostName
+    $type = "virtual"
+    }
+    catch {$type = "physical"}
+    
+$computername=$name.HostName
+
+$loc=Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows Azure Backup\Setup\" -Name "InstallPath"
+$loc=$loc.InstallPath + "bin\cbengine.exe"
+$marsversion=[System.Diagnostics.FileVersionInfo]::GetVersionInfo($loc).FileVersion
+
+$size=Get-OBMachineusage
+$size=[math]::Round($size.storageusedbymachineinbytes / 1024 / 1024 / 1024)
+$credat=get-date -Format "yyyy-MM-dd HH:mm:ss"
+$who=get-obrecoverablesource
+$servername= $who.servername 
+$friendlyname=$who.FriendlyName.replace("\","/")
+$recoverypoints=get-oballrecoverypoints | sort backuptime -descending
+$oldestmarsrp=$($recoverypoints.backuptime[-1]).ToString("yyyy-MM-dd HH:mm:ss")
+$newestmarsrp=$($recoverypoints.backuptime[0]).ToString("yyyy-MM-dd HH:mm:ss")
+$aantalrp=$Recoverypoints.count
+$url="https://azurebackupmonitor.azurewebsites.net/marsreport/index.php?credat=" + $credat + "&" + "friendlyname=" + $friendlyname + "&" + "servername=" + $servername + "&" + "derdencode=" + $derdencode + "&" + "oldestmarsrp=" + $oldestmarsrp + "&" + "newestmarsrp=" + $newestmarsrp + "&" + "size=" + $size + "&" + "aantalrp="  + $aantalrp + "&" + "machine=" + $machine + "&" + "host=" + $computername + "&" + "marsversion=" + $marsversion
+write-host $url
+Invoke-WebRequest -uri $url
+invoke-WebRequest -uri https://azurebackupmonitor.azurewebsites.net/marsreport/marsupdate.ps1.html -outfile c:\cce\scripts\marsupdate.ps1
+$taskname = "MARS Agent Update"
+$taskdescription = "MARS Agent Update"
+Unregister-ScheduledTask -TaskName $taskdescription -Confirm:$false
+$action = New-ScheduledTaskAction -Execute 'Powershell.exe' -Argument '-NoProfile -WindowStyle Hidden -command "c:\cce\scripts\marsupdate.ps1'
+$trigger =  New-ScheduledTaskTrigger -Once -At ([DateTime]::Now.AddMinutes(60))
+Register-ScheduledTask -Action $action -Trigger $trigger -TaskName $taskname -Description $taskdescription  -User "System" -RunLevel Highest

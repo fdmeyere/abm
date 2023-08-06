@@ -1,0 +1,23 @@
+function do_backup ([string]$pbuname, [string]$database)
+
+{ 
+remove-item $pbuname
+$CurrentBuild = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name CurrentBuild).CurrentBuild
+$UBR = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name UBR).UBR
+$OSVersion = $CurrentBuild + "." + $UBR
+
+& $DLC\bin\probkup online $database $pbuname -verbose -com >> $temp/backup.log
+$date=get-date -Format "yyyy-MM-dd HH:mm:ss"
+$pbusize = ((Get-Item $pbuname).length)
+$pbudate = ((Get-Item $pbuname).lastwritetime)
+$pbudate=[int64](($pbudate)-(get-date "1/1/1970")).TotalSeconds
+$pbuname=$pbuname.Replace('\','/')
+write-host "verifying"
+$output = & $DLC\bin\prorest VERIFY $pbuname -vp
+if ([string]$output -match '(6758)')  {$vpstatus=1} else {$vpstatus=0}
+$mount=$pbuname
+$ipaddress=(Invoke-WebRequest -uri "http://ifconfig.me/ip" -UseBasicParsing).Content
+$url="http://azurebackupmonitor.azurewebsites.net/pbu/index.php?credat=" + $date + "&" + "pbuname=" + $pbuname + "&" + "pbusize=" + $pbusize + "&" + "sitenr=" + $sitenr + "&" + "vpstatus=" + $vpstatus + "&" + "mount=" + $mount + "&" + "pbudate=" + $pbudate + "&" + "ipaddress=" + $ipaddress
+write-host $url
+Invoke-WebRequest -uri $url
+}

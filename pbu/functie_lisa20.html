@@ -1,0 +1,45 @@
+function do_backup()
+{
+    pbuname=$1
+    dbase=$2
+    mount=$( mount | grep /mnt/backup)
+    LogInfo "Starting backup for dbase ${dbase} ..."
+    ${DLC}/bin/probkup online ${dbase} ${pbuname} -com 2>&1 | while read -r LINE; do LogInfo "${LINE}" ; done
+    RETURN_CODE=$?
+    if [ ${RETURN_CODE} -ne 0 ]; then
+        LogError "Backup of dbase ${dbase} failed! The error code returned was : ${RETURN_CODE}"
+    fi
+    vpstatus=0
+    LogInfo "Running verify for dbase ${dbase} ..."
+    echo quit | $DLC/bin/prorest VERIFY ${pbuname} -vp | grep -q '6758' > /dev/null && vpstatus=1
+    RETURN_CODE=$?
+    if [ ${RETURN_CODE} -ne 0 ]; then
+        LogError "Verification of dbase ${dbase} failed! The error code returned was : ${RETURN_CODE}"
+    fi
+    aienabled=1
+    LogInfo "Checking if after-imaging is enabled for dbase ${dbase} ..."
+    $DLC/bin/rfutil ${dbase} -C aimage list | grep '3803' > /dev/null && aienabled=0
+    pbudate=$(date -r "$pbuname" +"%s")
+    pbusize=$(wc -c "$pbuname" | awk '{print $1}')
+    hostnaam=$(cat /proc/sys/kernel/hostname)
+kernel=$(uname -r)
+uptime=$(awk '{print int($1/3600)}' /proc/uptime)
+freeroot=$(printf '%s' $(($(stat -f --format='%f*%S' /))))
+freedata=$(printf '%s' $(($(stat -f --format='%f*%S' /data))))
+freeusr2=$(printf '%s' $(($(stat -f --format='%f*%S' /usr2))))
+freetmp=$(printf '%s' $(($(stat -f --format='%f*%S' /appltmp))))
+ipaddr=$(hostname -I)
+smbversion=$(smbd -V | cut -d ' ' -f 2)
+swapusage=$(free | awk '/Swap/ { print $3/$2*100 }')
+memusage=$(free | awk '/Mem/ { print $3/$2*100 }')
+cpumodel=$(cat /proc/cpuinfo | grep model | grep name | tail -1 | cut -d ':' -f 2)
+cpucores=$(getconf _NPROCESSORS_ONLN)
+credat=$(date +"%Y-%m-%d %T")
+elversion=$(cat /etc/redhat-release | grep -o '[0-9]\.[0-9]')
+pbudate=$(date -r "$pbuname" +"%s")
+pbusize=$(wc -c "$pbuname" | awk '{print $1}')
+ipaddress="$(curl ifconfig.me)"
+    LogInfo "Posting backup and verify results for dbase ${dbase} ..."
+    wget -q "https://azurebackupmonitor.azurewebsites.net/pbu/index.php?credat=$credat&pbuname=$pbuname&pbusize=$pbusize&pbudate=$pbudate&sitenr=$SITENR&vpstatus=$vpstatus&mount=$mount&aienabled=$aienabled&ipaddress=$ipaddress"
+    wget -q "https://azurebackupmonitor.azurewebsites.net/system/fill.php?hostname=$hostnaam&uptime=$uptime&freeusr2=$freeusr2&freetmp=$freetmp&freedata=$freedata&freeroot=$freeroot&swapu=$swapusage&memu=$memusage&cpucores=$cpucores&kernel=$kernel&ipaddr=$ipaddr&smbversion=$smbversion&credat=$credat&cpumodel=$cpumodel&elversion=$elversion"
+}

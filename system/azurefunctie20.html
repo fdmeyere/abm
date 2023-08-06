@@ -1,0 +1,40 @@
+APPL_SRC_NAME=applprod
+CCE=/usr2/cce
+CUSTOMER_CODE=LUCO001
+
+
+
+LogInfo "Downloaden laatste versie azcopy"
+
+/bin/rm -r ./azcopy_linux_amd64_*
+wget https://aka.ms/downloadazcopy-v10-linux -O downloadazcopy-v10-linux --no-check-certificate
+tar -xvf downloadazcopy-v10-linux
+/bin/rm /usr/bin/azcopy
+cp  ./azcopy_linux_amd64_*/azcopy /usr/bin/
+
+AZCOPYVERSION=$(azcopy -v)
+LogInfo "Azcopy versie: "$AZCOPYVERSION
+LogInfo "Klaar met downloaden laatste versie azcopy"
+
+LogInfo "Synchonizing AI dir to Azure storage"
+KEY=$(wget -O - https://azurebackupmonitor.azurewebsites.net/system/storagekey.txt)
+URI=https://ccestor03.blob.core.windows.net/ccetest/$CUSTOMER_CODE-$APPL_SRC_NAME?$KEY
+LogInfo "Storage key downloaded: "$KEY
+LogInfo "Completre URI: "$URI
+/usr/bin/azcopy sync $AI_BACKUP_DIR $URI --delete-destination true
+/usr/sbin/tmpwatch -m 8d  /root/.azcopy
+/usr/sbin/tmpwatch -m 8d $AI_BACKUP_DIR
+LogInfo "Azure storage sync done"
+
+
+
+LogInfo "Now checking for anomalies along the way ..."
+LOG_FILE_CONTENTS=$(cat "${LOG_FILE}")
+if grep -q error <<<${LOG_FILE_CONTENTS}; then
+    echo -e "Hello,\n\nThe clean-up of backed-up after-imaging files failed! Please find the log in attachment and check this urgently!\n\nKind regards,\n\nThe AI clean-up batch.\n" | mail -s "AICLEANUP - ${CUSTOMER_CODE^^} - ${APPL_SRC_NAME}(${SITENR}) - AI clean-up failed" -a "${LOG_FILE}" ${MAILTO}
+    # Return failure
+    exit 1
+else
+    MAILTO=""
+    echo -e "Hello,\n\nThe clean-up of backed-up after-imaging files succeeded! Please find the log in attachment!\n\nKind regards,\n\nThe AI clean-up batch.\n" | mail -s "AICLEANUP - ${CUSTOMER_CODE^^} - ${APPL_SRC_NAME}(${SITENR}) - AI clean-up succeeded" -a "${LOG_FILE}" ${MAILTO}
+fi

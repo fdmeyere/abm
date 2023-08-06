@@ -1,0 +1,27 @@
+#ipmo powershellget -RequiredVersion 2.2.5 -Force -AllowClobber
+#powershell install-module hpesysinfocmdlets -Force -AllowClobber -AcceptLicense
+#ipmo hpesysinfocmdlets
+
+$sn = Get-HPESysInfoServer | Select-Object -ExpandProperty SystemSerialNumber
+$naam = $([Environment]::MachineName)
+$producttype = Get-HPESysInfoServer | Select-Object -ExpandProperty ProductName
+
+$HPEStorageInfo=Get-HPESysInfoStorage
+$HPEServerInfo=Get-HPESysInfoServer
+
+$json1 = $HPEStorageInfo.ARRAYCONTROLLERS.DISKDRIVES.Physicaldriveinfo | select-object  CapacityGB,DiskDriveStatusReasons,location,interfacetype,rotationalspeedrpm,model 
+$json2 = $HPEServerInfo.FIRMWAREINVENTORY.SystemFWVersion
+
+
+$body = @{
+    diskinfo = $json1
+    firmware = $json2
+    serialnumber = $sn
+    computername = $naam
+    producttype = $producttype
+}
+
+$body = $body | ConvertTo-Json
+
+Invoke-WebRequest -Uri https://azurebackupmonitor.azurewebsites.net/system/json.php -Method Post -Body $body -ContentType 'application/json; charset=UTF-8'
+

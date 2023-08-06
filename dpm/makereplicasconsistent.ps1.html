@@ -1,0 +1,5 @@
+$dpmservername=$env:COMPUTERNAME
+$replicaerrors=get-dpmalert -dpmservername $dpmservername | where-object {$_.severity -eq "Error"}
+foreach ($replicaerror in $replicaerrors) {start-dpmdatasourceconsistencycheck -datasource $replicaerror.datasource}
+
+

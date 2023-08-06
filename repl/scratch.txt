@@ -1,0 +1,10 @@
+
+    $connectiondetails = @{
+
+        'tenantid' = "97ecc31b-60f5-4a2d-a227-6fe80ef9abed"
+        'clientid' = "05b4e9fc-a21b-403a-b352-dcfd62beec8c"  
+        'ClientSecret' = "E3R8Q~-zhMUWQhrID4gBHKiAmQz0kgq2~Vy5gbE." | ConvertTo-SecureString -AsPlainText -Force
+    
+    }
+
+    $connectiondetails | Export-CliXml  -Path c:\cce\scripts\MyCredential.xml

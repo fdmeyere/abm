@@ -1,0 +1,118 @@
+#TLS 1.2 gebruiken
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls12
+
+#We hebben drie modules nodig. Eerst de packager.
+#Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force
+#Daarna de module om html emails te schrijven
+#install-module pswritehtml -allowclobber -force
+#Als laatste de MSAL Microsoft Modern Auth Library
+#install-module msal.ps -allowclobber -force
+#importeer de modules
+Import-Module PSWriteHTML
+Import-Module MSAL.PS
+#Vraag afzener en bestemmeling op aan de webserivce, op basis van de derdencode
+$obj=invoke-webrequest -uri https://azurebackupmonitor.azurewebsites.net/dpm/getinfo.php?derdencode=$derdencode -UseBasicParsing | ConvertFrom-Json 
+$emailto1=$obj.emailto1
+$emailto2=$obj.emailto2
+$emailfrom=$obj.emailfrom
+$subject=$derdencode + " backup rapport"
+#default adressen zetten wanneer de webservice geen adressen kan geven
+if ($emailto1.length -lt 5) { $emailto1 = "fdm@cce.be"} 
+if ($emailto2.length -lt 5) { $emailto2 = "no-reply@cce.be"} 
+#write-host $emailto1
+#write-host $emailto2
+
+#Importeer DPM module
+$installPath = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Microsoft Data Protection Manager\Setup" "UIInstallPath").UIInstallPath
+$dpmModuleFullPath = $installPath + "Modules\DataProtectionManager\DataProtectionManager.psd1"
+Import-Module $dpmModuleFullPath 
+
+
+#Vraag de dpm jobs op van de afgelopen dag
+if ($derdencode -eq "EXPO002") {
+    $results=get-dpmjob  -From (Get-Date).AddDays(-1) -To (Get-Date).AddDays(-0) -AllJobsInInterval -nolimitonjobcount | Where-Object {$_.status -ne 'Failed'}
+} else {
+    $results=get-dpmjob  -From (Get-Date).AddDays(-1) -To (Get-Date).AddDays(-0) -AllJobsInInterval -nolimitonjobcount
+}
+$results | Out-File c:\cce\test.txt
+
+#Voor elke job voeren we iets uit
+$resultx = foreach ($result in $results) {
+
+    $starttime=($result.starttime).ToString("yyyy/MM/dd HH:mm:ss")
+    $endtime=($result.endtime).ToString("yyyy/MM/dd HH:mm:ss")
+    $a2 = $result.datasources.Replace('RCT\','')
+    $a2 = $a2.replace('C:\','C:/ ('+$derdencode+')')
+    $a2 = $a2.replace('D:\','D:/ ('+$derdencode+')')
+    $url="https://azurebackupmonitor.azurewebsites.net/dpm/dpmreportstats.php?status=" + $result.status + "&" +  "jobcategory=" + $result.jobcategory + "&" + "datasources="+$a2  + "&" + "datasize="+$result.datasize  + "&" + "starttime="+$starttime  + "&" + "endtime="+$endtime + "&" + "derdencode="+$derdencode 
+
+    #Invoke-WebRequest -uri $url
+
+
+
+  [PSCustomObject] @{
+        'status'=$result.status
+        'JobCategory' = $result.JobCategory 
+        'Datasources' = $result.Datasources
+        'starttime' = $result.starttime
+        'datasize' = ([math]::Round(($result.datasize)/1024/1024/1024)).ToString() + " GB"
+        'duration' = ((new-timespan -start $result.starttime -end $result.endtime).Days * 24 * 60) + ((new-timespan -start $result.starttime -end $result.endtime).Hours * 60) + (new-timespan -start $result.starttime -end $result.endtime).Minutes
+        
+        
+    }
+}
+
+
+
+    $emailbody = EmailBody -FontFamily 'Calibri' -Size 15 {
+        EmailTable -DataTable $resultx {
+        New-TableCondition -Name 'Status' -Operator eq -Value "Succeeded" -BackgroundColor Green -Color White -Inline -ComparisonType String
+        New-TableCondition -Name 'Status' -Operator eq -Value "Warning" -BackgroundColor Yellow -Color Black -Inline -ComparisonType String
+        New-TableCondition -Name 'Status' -Operator eq -Value "Failed"  -BackgroundColor Red -Color White -Inline -ComparisonType String
+        New-TableHeader -Title "DPM CloudBackup Report ($(Get-Date))" -Alignment center -BackGroundColor BuddhaGold -Color White -FontWeight bold
+        } -HideFooter
+    }
+    $emailbody=$emailbody.replace("<","`n<")
+    $emailbody=$emailbody.Replace('"','\"')
+    $emailbody=$emailbody.Replace('/','\/')
+    $emailbody=$emailbody.Replace("RCT\","RCT ")
+    $emailbody=$emailbody.Replace("C:\","C: ")
+    $emailbody=$emailbody.Replace("D:\","D: ")
+
+$connectiondetails = import-clixml -path c:\cce\scripts\MyCredential.xml 
+   
+    $token = Get-MsalToken @connectiondetails
+    $accessToken = $token.AccessToken
+    $mailuser="tech.support@cce.be"
+    
+    $URLsend = "https://graph.microsoft.com/v1.0/users/$mailuser/sendMail"
+    $BodyJsonsend = @"
+                        {
+                            "message": {
+                              "subject": "$derdencode DPM report",
+                              "body": {
+                                "contentType": "HTML",
+                                "content": "
+    
+$emailbody    
+    
+    
+                                "
+                              },
+                              "toRecipients": [
+                                {
+                                  "emailAddress": {
+                                    "address": "$emailto1"
+                                  }
+                                },
+                                                                {
+                                  "emailAddress": {
+                                    "address": "$emailto2"
+                                  }
+                                }
+                              ]
+                            },
+                            "saveToSentItems": "true"
+                          }
+"@
+Invoke-RestMethod -Method POST -Uri $URLsend -Body $BodyJsonsend -ContentType "application/json" -Headers @{Authorization=("bearer {0}" -f $accessToken)}
