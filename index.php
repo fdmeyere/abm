@@ -3,7 +3,7 @@
     <link rel="stylesheet" href="css/test.css">
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP&display=swap" rel="stylesheet">
     </head>
-<h3>Welkom bij de CCE backup, replicatie en HPE server disk status monitor.</h3>
+<h3>Welkom bij de CCE backup, replicatie en HPE server disk status monitor ;-) .</h3>
 <p><span style="text-decoration: underline;">
     <strong>PBU monitor</strong></span><br /><a href="https://webapp-test-abm.azurewebsites.net/pbuerror.php">Lijst van alle backup fouten.</a>&nbsp;Deze pagina wordt door Nagios gecheckt.<br /><a href="https://webapp-test-abm.azurewebsites.net/pbu/pbushowall.php">Lijst van alle Progress online backups (lange lijst!).</a><br /><a href="https://webapp-test-abm.azurewebsites.net/pbu/pbushow24.php">Dezelfde lijst maar dan beperkt tot de afgelopen 24u.</a><br /><a href="https://azurebackupmonitor.azurewebsites.net/pbu/pbushowlisa24.php">Dezelfde lijst maar dan beperkt tot de LISA databases van de afgelopen 24u. Hier kan je ook nagaan voor welke Linux databases AfterImages geactiveerd zijn.</a><br /><a href="https://azurebackupmonitor.azurewebsites.net/pbu/showpbunames.php">Welke Progress online backups worden hier gemonitored?</a><br /><a href="https://azurebackupmonitor.azurewebsites.net/pbu/showhistory.php">Hoe evolueert de size van elke Progress online backup.</a><br /><a href="https://azurebackupmonitor.azurewebsites.net/pbu/insertpbu.php">Voeg hier een nieuwe database toe.</a><br /><br />
     <span style="text-decoration: underline;">
